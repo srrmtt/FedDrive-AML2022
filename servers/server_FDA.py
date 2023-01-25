@@ -127,11 +127,6 @@ class Server_FDA():
       return mIoUA/countA,mIoUB/countB
 
     def train(self):
-      #num_train_samples = len(self.train_dataset)
-      # check_epoch = 0
-      # mIoUA = []
-      # mIoUB = []
-
       checkpoint = torch.load('/content/drive/MyDrive/step4/checkpoints/long_esp_FDA/DatasetA/110checkpoint.pt')
       
       self.main_model.load_state_dict(checkpoint['model_state_dict'])
