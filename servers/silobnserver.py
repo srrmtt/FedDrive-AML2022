@@ -14,12 +14,21 @@ DEVICE = "cuda"
 class SiloBNServer(Server):
 
   def __init__(self, clients: list, path: str, test_dataloader: DataLoader, bn_layer:bool = False, clients_ckpt_path:str=None):
-
+    """
+    Instaciate an instance of the SiloBNServer 
+    @params
+      - clients: list, client list 
+      - path: path where the server dump is stored, load this model if the path is not None
+      - test_dataloader: DataLoader, contains the test images and labels
+      - bn_layer: bool, true to averaging everything except the bn parameters, false exclude only the running ones
+      - clients_ckpt_path: str, folder path where store and load the clients dumps
+    """
     super().__init__(clients, None, test_dataloader, False)
     self.bn_layer = bn_layer
     self.updates = []
 
     if path:
+      # load server model from path
       if os.path.isfile(path):
         print("Loading model from", path)
         checkpoint = torch.load(path)
@@ -30,6 +39,7 @@ class SiloBNServer(Server):
         print(f"[SiloBNServer]:ERROR {path} is not a valid path.")
 
     if clients_ckpt_path:
+      # load clients if a path is specified
       if os.path.isdir(clients_ckpt_path):
         for client in self.clients:
           _path = SiloBNClient.build_ckpt_path(clients_ckpt_path, client.client_id)
@@ -42,17 +52,25 @@ class SiloBNServer(Server):
         print("[SiloBNServer]: Clients loaded correctly")
 
   def load_server_model_on_client(self, client: Client):
+    """
+    Load server parameters of server on the specified client 
+    """
     # client.bisenet_model.load_state_dict(client.bn_dict, strict=False)
 
     for k, v in self.main_model.state_dict().items():
       if self.bn_layer:
+        # exclude bn params
         if 'bn' not in k:
           client.bisenet_model.state_dict()[k].data.copy_(v)
         else:
+          # exclude bn running statistics
           if 'bn.running' not in k and 'bn.num_batches_tracked' not in k:
             client.model.state_dict()[k].data.copy_(v)
   
   def _aggregation(self):
+    """
+    Aggregate clients models to create an average model. This method will be used to update the server model.
+    """
     total_weight = 0.
     base = OrderedDict()
 
@@ -81,6 +99,12 @@ class SiloBNServer(Server):
     return averaged_sol_n
 
   def train(self):
+    """
+    Sample some clients (specified in the NUM_CLIENTS_FOR_ROUND) and train them, then add their results in the updates
+    list in this way they will be averaged with the aggregation method. 
+    @return 
+      - the train losses of the clients
+    """
     clients = random.sample(self.clients,NUM_CLIENTS_FOR_ROUND)
     losses = dict()
 
@@ -94,24 +118,13 @@ class SiloBNServer(Server):
 
   
   def update_model(self):
+    """
+    Load the averaged solution (updates) computed with the aggregation method and load it on the server.  
+    """
     averaged_sol_n = self._aggregation()
 
     self.main_model.load_state_dict(averaged_sol_n, strict=False)
     self.updates = []
-
-  def test_clients(self, clients_to_test: list):
-    loss_test = dict()
-    # save previous bn parameters 
-    bn_dict_tmp = self.copy_bn_stats()
-    self.reset_bn_layers()
-    for client in clients_to_test:
-      
-      # use server 
-      self.load_server_model_on_client(client)
-      loss = client.test()
-      loss_test[client.client_id] = loss
-      self.model.load_state_dict(bn_dict_tmp, strict=False)
-    return loss_test
   
   def copy_bn_stats(self):
     bn_dict_tmp = OrderedDict()
@@ -121,6 +134,9 @@ class SiloBNServer(Server):
     return bn_dict_tmp
 
   def evaluate(self):
+    """
+    Evaluate the server performance on the test set.
+    """
     # save previous bn parameters 
     bn_dict_tmp = self.copy_bn_stats()
 
@@ -152,18 +168,28 @@ class SiloBNServer(Server):
     return mIoU/count
   
   def clients_dump(self, ckpt_path: str):
+    """
+    Save clients in the given path directory
+    """ 
     for client in self.clients:
       client.save_bn_stats(ckpt_path)
     print("[SiloBNServer]: Clients saved correctly.")
 
   @staticmethod
   def reset_bn_layers(net: nn.Module):
+    """
+    Reset running stats in the batch normalization layer of the given net
+    """
     for m in net.modules():
         if type(m) == nn.BatchNorm2d:
           m.reset_running_stats()
   
   @staticmethod
   def compute_running_stats(net: nn.Module, loader: DataLoader):
+    """
+    Run the net in the forward mode to learn the running statistics of the test target. Torch no grad guarantees 
+    that the net will not learn anything.
+    """
     net.train()
     for images, _ in loader:
       with torch.no_grad():
@@ -172,6 +198,9 @@ class SiloBNServer(Server):
         
   @staticmethod
   def print_running_stats(net: nn.Module):
+    """
+    Print the running statistics of the module. 
+    """
     for m in net.modules():
         if type(m) == nn.BatchNorm2d:
           print(m.running_mean, m.running_var)

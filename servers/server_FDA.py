@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Dec 26 11:27:31 2022
-
-@author: matte
-"""
 import random
 from torch.backends import cudnn
 import numpy as np
@@ -50,18 +44,8 @@ def compute_mIoU(y_true,y_pred):
   
   y_pred = y_pred.cpu().detach().numpy().flatten()
   y_true = y_true.cpu().detach().numpy().flatten()
-  # print(y_true)
-  # print(y_pred)
-  # index = [i for i in range(len(y_true)) if y_true[i] != 255]
-  # mask = y_true == 255
-  # y_true = np.delete(y_true, np.where(mask))
-  # y_pred = np.delete(y_pred, np.where(mask))
-  #print(index)
-  # print(y_true)
-  # print(y_pred)
-  #hist = confusion_matrix(y_true, y_pred, labels=range(19))
   hist = _fast_hist(19,y_true,y_pred)
-  #print(hist)
+
   gt_sum = hist.sum(axis=1)
   mask = (gt_sum != 0)
   diag = np.diag(hist)
@@ -69,27 +53,6 @@ def compute_mIoU(y_true,y_pred):
   mean_iu = np.mean(iu[mask])
   return mean_iu
 
-# def compute_mIoU(mask,pred_mask,smooth=1e-10,n_classes=19):
-#     with torch.no_grad():
-#         #pred_mask = F.softmax(pred_mask, dim=1)
-#         pred_mask = torch.argmax(pred_mask, dim=1)
-#         pred_mask = pred_mask.contiguous().view(-1)
-#         mask = mask.contiguous().view(-1)
-
-#         iou_per_class = []
-#         for clas in range(0, n_classes): #loop per pixel class
-#             true_class = pred_mask == clas
-#             true_label = mask == clas
-
-#             if true_label.long().sum().item() == 0: #no exist label in this loop
-#                 iou_per_class.append(np.nan)
-#             else:
-#                 intersect = torch.logical_and(true_class, true_label).sum().float().item()
-#                 union = torch.logical_or(true_class, true_label).sum().float().item()
-
-#                 iou = (intersect + smooth) / (union +smooth)
-#                 iou_per_class.append(iou)
-#         return np.nanmean(iou_per_class)
 
 class Server_FDA():
     
@@ -100,10 +63,9 @@ class Server_FDA():
         self.clients = clients
         self.main_model = BiSeNetV2(n_classes=19,pretrained=True)
         self.styles = styles
-        self.criterion = nn.CrossEntropyLoss(ignore_index=255,reduction='none') # da consegna ignore_index=255
+        self.criterion = nn.CrossEntropyLoss(ignore_index=255,reduction='none') 
         self.parameters_to_optimize = self.main_model.parameters() 
         self.optimizer = optim.SGD(self.parameters_to_optimize, lr=LR, momentum=MOMENTUM, weight_decay=WEIGHT_DECAY)
-        #self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=STEP_SIZE, gamma=GAMMA)
         self.scheduler = optim.lr_scheduler.PolynomialLR(self.optimizer, total_iters=600, power=0.8, last_epoch=- 1, verbose=False)
         
     def load_server_model_on_client(self,client):
