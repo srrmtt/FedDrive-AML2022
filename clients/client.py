@@ -121,7 +121,7 @@ class Client():
           self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=STEP_SIZE, gamma=GAMMA)
 
         # style augment instance
-        self.style_detector = StyleAugment(20, L=0.01)
+        self.style_detector = StyleAugment(20, L=0.1,b=1)
         self.avg_style = None
 
         # pseudo-labels

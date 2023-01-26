@@ -66,65 +66,31 @@ class Server_FDA():
         self.criterion = nn.CrossEntropyLoss(ignore_index=255,reduction='none') 
         self.parameters_to_optimize = self.main_model.parameters() 
         self.optimizer = optim.SGD(self.parameters_to_optimize, lr=LR, momentum=MOMENTUM, weight_decay=WEIGHT_DECAY)
-        self.scheduler = optim.lr_scheduler.PolynomialLR(self.optimizer, total_iters=600, power=0.8, last_epoch=- 1, verbose=False)
+        #self.scheduler = optim.lr_scheduler.PolynomialLR(self.optimizer, total_iters=600, power=0.8, last_epoch=- 1, verbose=False)
         
     def load_server_model_on_client(self,client):
       client.bisenet_model.load_state_dict(deepcopy(self.main_model.state_dict()))
 
     
-    def evaluate(self):
+    def evaluate(self,dataloader):
       net = self.main_model.to(DEVICE) # this will bring the network to GPU if DEVICE is cuda
       net.train(False) # Set Network to evaluation mode
       net=net.half()
-      running_corrects = 0
       torch.cuda.empty_cache() 
-      mIoUA = 0
-      mIoUB = 0
-      countA = 0
-      countB = 0
-      for images, labels in tqdm(self.test_dataloaderA):
+      mIoU = 0
+      count = 0
+
+      for images, labels in tqdm(dataloader):
         images = images.half().to(DEVICE)
         labels = labels.half().to(DEVICE)
 
-        
-
-        print("images:"+str(images.size()))
-        print("labels:"+str(labels.size()))
-        
-        ##train_dataset.current_style=style
-        # Forward Pass
         outputs = net(images,test=True,use_test_resize=False)
         preds = outputs.argmax(dim=1)
-        # print(outputs.size())
-        mIoUA += compute_mIoU(labels,preds)
+        mIoU += compute_mIoU(labels,preds)
         
-        countA += 1
+        count += 1
 
-      for images, labels in tqdm(self.test_dataloaderB):
-        images = images.half().to(DEVICE)
-        labels = labels.half().to(DEVICE)
-
-        
-
-        print("images:"+str(images.size()))
-        print("labels:"+str(labels.size()))
-        
-        ##train_dataset.current_style=style
-        # Forward Pass
-        outputs = net(images,test=True,use_test_resize=False)
-        preds = outputs.argmax(dim=1)
-        # print(outputs.size())
-        mIoUB += compute_mIoU(labels,preds)
-        
-        countB += 1  
-        
-        # iou = ops.box_iou(labels, outputs)
-
-        # print('IOU : ', iou.numpy()[0][0])
-      print("mIoU_A = ",mIoUA/countA)
-      print("mIoU_B = ",mIoUB/countB)
-      net.train(True)
-      return mIoUA/countA,mIoUB/countB
+      return mIoU /count
 
     def train(self):
       checkpoint = torch.load('/content/drive/MyDrive/step4/checkpoints/long_esp_FDA/DatasetA/110checkpoint.pt')
@@ -136,6 +102,7 @@ class Server_FDA():
       check_epoch = checkpoint['round']
       mIoUA = checkpoint['mIoUA']
       mIoUB = checkpoint['mIoUB']
+      mIoUGTA = checkpoint['mIoUGTA']
 
       net = self.main_model.half().to(DEVICE) # this will bring the network to GPU if DEVICE is cuda
 
@@ -187,16 +154,22 @@ class Server_FDA():
           current_step += 1        
         # Step the scheduler
         self.scheduler.step()
+
         if epoch % 5 == 0:
-          mioua,mioub=self.evaluate()
-          mIoUB.append(mioub)
-          mIoUA.append(mioua)
+          mIoUB.append(self.evaluate(self.test_dataloaderB))
+          mIoUA.append(self.evaluate(self.test_dataloaderA))
+          mIoUGTA.append(self.evaluate(self.train_dataloader))
+          print("mIoU GTA:",mIoUGTA[-1])
+          print("mIoU test A:",mIoUB[-1])
+          print("mIoU test B:",mIoUA[-1])
+
         if epoch % 10 == 0:
           torch.save({
               'round': epoch,
               'model_state_dict': self.main_model.state_dict(),
               'mIoUA' : mIoUA,
               'mIoUB':mIoUB,
+              'mIoUGTA' : mIoUGTA,
               'optimizer': self.optimizer.state_dict}, '/content/drive/MyDrive/step4/checkpoints/long_esp_FDA/DatasetA/'+ str(epoch) +'checkpoint.pt')
         
             
